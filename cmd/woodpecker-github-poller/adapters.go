@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/hashicorp/nomad/api"
 	"go.woodpecker-ci.org/woodpecker/v3/woodpecker-go/woodpecker"
@@ -35,11 +39,37 @@ func (w *woodpeckerRepoSource) ActiveRepos() ([]poller.Repo, error) {
 	return out, nil
 }
 
-type woodpeckerTrigger struct{ client woodpecker.Client }
+type woodpeckerTrigger struct {
+	baseURL string
+	token   string
+	http    *http.Client
+}
 
 func (w *woodpeckerTrigger) Trigger(repoID int64, branch string) error {
-	_, err := w.client.PipelineCreate(repoID, &woodpecker.PipelineOptions{Branch: branch})
-	return err
+	body, err := json.Marshal(map[string]string{
+		"branch":  branch,
+		"message": "AUTO TRIGGER @ " + branch,
+	})
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/api/repos/%d/pipelines", w.baseURL, repoID)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+w.token)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := w.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		buf, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("trigger %d: %s", res.StatusCode, string(buf))
+	}
+	return nil
 }
 
 type nomadVarStore struct {

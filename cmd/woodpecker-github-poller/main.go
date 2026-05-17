@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -73,7 +74,11 @@ func runAction(ctx context.Context, cmd *cli.Command) error {
 
 	repos := &woodpeckerRepoSource{client: wpClient}
 	heads := &poller.GitLsRemote{Token: cmd.String("github-token")}
-	trigger := &woodpeckerTrigger{client: wpClient}
+	trigger := &woodpeckerTrigger{
+		baseURL: cmd.String("server-url"),
+		token:   cmd.String("server-token"),
+		http:    &http.Client{Timeout: 30 * time.Second},
+	}
 	store := &nomadVarStore{client: nomadClient, prefix: cmd.String("var-prefix")}
 
 	p := poller.NewPoller(repos, heads, trigger, store, poller.PollerWithInterval(interval))
